@@ -1,0 +1,18 @@
+# Python
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# Secrets: NEVER commit
+.env
+
+# Samsung starter data. Ignored for now as the safe default: it is Samsung's
+# material and we have not confirmed it may sit in a public repo.
+# REVISIT before the final release tag (see README, "Open decisions").
+data/*.json
+data/*.txt
+
+# Local artefacts
+*.sqlite3
+.vscode/
