@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import re
 import time
@@ -85,6 +85,13 @@ def _extract_sections(
 
 
 def _words(text: str) -> set[str]:
+    text = re.sub(
+        r"\bwi[\s-]?fi\b",
+        "wifi",
+        text,
+        flags=re.IGNORECASE,
+    )
+
     return {
         word.lower()
         for word in re.findall(r"[A-Za-z0-9]+", text)
@@ -377,8 +384,7 @@ class DeterministicSolutionProvider(SolutionProvider):
             ),
             category="auto",
             steps=(
-                f"Open the Settings page for "
-                f"{catalog_description}.",
+                f"Open Settings to {action_name.lower()}.",
             ),
             catalog_id=catalog_id,
         )
@@ -457,4 +463,4 @@ class FallbackSolutionProvider(SolutionProvider):
                 fallback_result,
             )
 
-            return fallback_result
+            return fallback_result  
