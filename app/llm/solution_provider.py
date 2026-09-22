@@ -160,13 +160,54 @@ def _select_siis_supported_candidate(
         "details",
     }
 
+    phrase_stopwords = {
+        "with",
+        "from",
+        "into",
+        "using",
+        "this",
+        "that",
+        "your",
+        "their",
+        "for",
+        "and",
+        "the",
+        "when",
+        "while",
+        "then",
+        "data",
+    }
+
     title_specific_words = title_words - generic_words
 
     if not title_specific_words:
         return None
 
+    # Build distinctive two-word phrases from the SIIS title.
+    title_tokens = [
+        word.lower()
+        for word in re.findall(r"[A-Za-z0-9]+", title_text)
+        if len(word) >= 4
+    ]
+
+    anchor_phrase = None
+
+    for first, second in zip(title_tokens, title_tokens[1:]):
+        if (
+            first not in generic_words
+            and second not in generic_words
+            and first not in phrase_stopwords
+            and second not in phrase_stopwords
+        ):
+            anchor_phrase = f"{first} {second}"
+
     best_candidate: dict[str, str] | None = None
     best_score = 0
+
+    content_words = (
+        _words(content_text)
+        - generic_words
+    )
 
     for candidate in candidates:
         catalog_text = " ".join(
@@ -180,21 +221,20 @@ def _select_siis_supported_candidate(
         candidate_words = _words(catalog_text)
         candidate_specific_words = candidate_words - generic_words
 
+        # The candidate must contain the distinctive title phrase.
+        if anchor_phrase is not None:
+            if anchor_phrase not in catalog_text.lower():
+                continue
+
         title_overlap = (
             title_specific_words
             & candidate_specific_words
         )
 
-        # Require at least two meaningful title matches.
         if len(title_overlap) < 2:
             continue
 
         score = len(title_overlap)
-
-        content_words = (
-            _words(content_text)
-            - generic_words
-        )
 
         content_overlap = (
             content_words
@@ -211,8 +251,6 @@ def _select_siis_supported_candidate(
             best_candidate = candidate
 
     return best_candidate
-
-
 def _extract_siis_steps(
     siis_text: str,
 ) -> tuple[str, ...]:
@@ -260,6 +298,11 @@ def _extract_siis_steps(
         "disable ",
         "remove ",
         "insert ",
+        "place ",
+        "plug ",
+        "swipe ",
+        "enter ",
+        "scan ",
         "press ",
         "tap ",
         "select ",
