@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import re
 from collections import OrderedDict
@@ -75,24 +75,27 @@ class FastPathCache:
 
     @staticmethod
     def _canonicalize_keyword(keyword: str) -> str:
-     aliases = {
-        "display": "screen",
-        "displays": "screen",
-        "screens": "screen",
+        aliases = {
+            "display": "screen",
+            "displays": "screen",
+            "screens": "screen",
 
-        "totally": "completely",
-        "entirely": "completely",
-        "fully": "completely",
+            "totally": "completely",
+            "entirely": "completely",
+            "fully": "completely",
 
-        "smartphone": "phone",
-        "smartphones": "phone",
+            # Treat equivalent display states as the same cache intent.
+            "dark": "black",
 
-        "wi": "wifi",
-        "fi": "wifi",
-        "wireless": "wifi",
-    }
+            "smartphone": "phone",
+            "smartphones": "phone",
 
-     return aliases.get(keyword, keyword)
+            "wi": "wifi",
+            "fi": "wifi",
+            "wireless": "wifi",
+        }
+
+        return aliases.get(keyword, keyword)
 
     def _build_signature(
         self,
@@ -191,8 +194,8 @@ class FastPathCache:
             "be",
         }
 
-        # Remove conversational/filler words that should not distinguish
-        # paraphrases of the same troubleshooting intent.
+        # Remove conversational and generic state words that should not
+        # distinguish paraphrases of the same troubleshooting intent.
         filler_words = {
             "my",
             "please",
@@ -204,12 +207,30 @@ class FastPathCache:
             "a",
             "an",
             "not",
+
+            # Grammar/state words
+            "is",
+            "are",
+            "was",
+            "were",
+            "has",
+            "have",
+            "had",
+            "gone",
+            "became",
+            "become",
+            "went",
+
+            # Generic visibility/state wording
+            "nothing",
+            "visible",
         }
 
         keywords_list = [
             keyword
             for keyword in keywords_list
-            if keyword not in action_words and keyword not in filler_words
+            if keyword not in action_words
+            and keyword not in filler_words
         ]
 
         # Canonicalize common paraphrases.
@@ -218,7 +239,25 @@ class FastPathCache:
             for keyword in keywords_list
         ]
 
-        # Samsung is usually brand context rather than the actual
+                # Treat common display-visibility phrases as the same
+        # cache intent as a black/blank display.
+        visibility_words = {
+            "see",
+            "showing",
+            "visible",
+            "nothing",
+            "anything",
+            "cannot",
+        }
+
+        if any(word in keywords_list for word in visibility_words) or re.search(r"\b(?:nothing\s+(?:is\s+)?visible|nothing\s+is\s+showing)\b", normalized_query):
+            keywords_list = [
+                keyword
+                for keyword in keywords_list
+                if keyword not in visibility_words
+            ]
+            keywords_list.append("black")
+# Samsung is usually brand context rather than the actual
         # troubleshooting intent, so don't let it reduce similarity.
         keywords_list = [
             keyword
@@ -404,3 +443,4 @@ class FastPathCache:
     def __len__(self) -> int:
         with self._lock:
             return len(self._entries)
+
