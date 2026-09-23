@@ -169,6 +169,34 @@ def test_cache_paraphrase_hit(tmp_path):
     assert stats["hits"] == 1
 
 
+def test_cache_matches_display_black_paraphrase(tmp_path):
+    cache = FastPathCache()
+
+    service = TroubleshootService(
+        retriever=EmptyRetriever(),
+        catalog=make_catalog(tmp_path),
+        query_provider=FakeQueryProvider(),
+        solution_provider=FakeSolutionProvider(),
+        cache=cache,
+    )
+
+    first_result = service.troubleshoot(
+        "My phone display is completely black",
+    )
+
+    second_result = service.troubleshoot(
+        "The display on my phone has gone black",
+    )
+
+    assert first_result.ok is True
+    assert second_result.ok is True
+
+    stats = cache.stats()
+
+    assert stats["paraphrase_hits"] == 1
+    assert stats["hits"] == 1
+
+
 def test_cache_separates_different_siis_contexts(tmp_path):
     cache = FastPathCache()
 
