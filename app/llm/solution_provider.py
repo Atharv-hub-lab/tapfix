@@ -44,15 +44,11 @@ def _extract_sections(
     catalog_marker = "CATALOG CANDIDATES:"
 
     if catalog_marker in context:
-        # SIIS is present.
-        # Only parse candidates after the catalog section marker.
         candidate_section = context.split(
             catalog_marker,
             1,
         )[1]
     else:
-        # No SIIS was supplied.
-        # In this case the entire context is the catalog section.
         candidate_section = context
 
     pattern = re.compile(
@@ -94,7 +90,10 @@ def _words(text: str) -> set[str]:
 
     return {
         word.lower()
-        for word in re.findall(r"[A-Za-z0-9]+", text)
+        for word in re.findall(
+            r"[A-Za-z0-9]+",
+            text,
+        )
         if len(word) >= 4
     }
 
@@ -160,7 +159,6 @@ def _select_siis_supported_candidate(
         "details",
     }
 
-    # Words that should not form part of a distinctive topic phrase.
     phrase_stopwords = {
         "with",
         "from",
@@ -179,24 +177,28 @@ def _select_siis_supported_candidate(
         "data",
     }
 
-    title_specific_words = title_words - generic_words
+    title_specific_words = (
+        title_words - generic_words
+    )
 
     if not title_specific_words:
         return None
 
-    # Build meaningful two-word phrases from the title.
-    # Example:
-    # "Transfer Secure folder with Smart Switch"
-    # -> "smart switch" becomes the distinctive topic.
     title_tokens = [
         word.lower()
-        for word in re.findall(r"[A-Za-z0-9]+", title_text)
+        for word in re.findall(
+            r"[A-Za-z0-9]+",
+            title_text,
+        )
         if len(word) >= 4
     ]
 
     anchor_phrase = None
 
-    for first, second in zip(title_tokens, title_tokens[1:]):
+    for first, second in zip(
+        title_tokens,
+        title_tokens[1:],
+    ):
         if (
             first not in generic_words
             and second not in generic_words
@@ -223,9 +225,11 @@ def _select_siis_supported_candidate(
         )
 
         candidate_words = _words(catalog_text)
-        candidate_specific_words = candidate_words - generic_words
 
-        # The candidate must contain the distinctive title phrase.
+        candidate_specific_words = (
+            candidate_words - generic_words
+        )
+
         if anchor_phrase is not None:
             if anchor_phrase not in catalog_text.lower():
                 continue
@@ -235,7 +239,6 @@ def _select_siis_supported_candidate(
             & candidate_specific_words
         )
 
-        # Require at least two meaningful title matches.
         if len(title_overlap) < 2:
             continue
 
@@ -263,75 +266,145 @@ def _extract_siis_steps(
 ) -> tuple[str, ...]:
     content = siis_text
 
-    for line in siis_text.splitlines():
-        stripped = line.strip()
+    content_match = re.search(
+        r"content=(.*)",
+        siis_text,
+        flags=re.DOTALL,
+    )
 
-        if stripped.startswith("content="):
-            content = stripped[len("content="):].strip()
+    if content_match:
+        content = content_match.group(1).strip()
 
-    text = " ".join(content.split())
-
-    if not text:
+    if not content:
         return (
             "Follow the troubleshooting guidance provided.",
         )
 
-    sentences = [
-        sentence.strip(" .")
-        for sentence in re.split(
-            r"(?<=[.!?])\s+",
-            text,
-        )
-        if sentence.strip()
-    ]
+    # Remove the leading category/heading text before the
+    # actual troubleshooting sections.
+    content = re.sub(
+        r"^[^#]*##\s*Troubleshooting Steps[^#]*",
+        "",
+        content,
+        flags=re.IGNORECASE,
+    )
 
-    action_starters = (
-        "check ",
-        "inspect ",
-        "verify ",
-        "ensure ",
-        "confirm ",
-        "try ",
-        "place ",
-        "plug ",
-        "swipe ",
-        "enter ",
-        "scan ",
-        "restart ",
-        "force restart ",
-        "charge ",
-        "connect ",
-        "disconnect ",
-        "open ",
-        "close ",
-        "turn ",
-        "switch ",
-        "enable ",
-        "disable ",
-        "remove ",
-        "insert ",
-        "press ",
-        "tap ",
-        "select ",
-        "go to ",
-        "look for ",
-        "make sure ",
+    # Split SIIS content into numbered troubleshooting sections.
+    sections = re.split(
+        r"###\s*Step\s+\d+\s*:\s*",
+        content,
+        flags=re.IGNORECASE,
+    )
+
+    if len(sections) <= 1:
+        sections = [content]
+
+    action_patterns = (
+        r"\binspect\b",
+        r"\bcheck\b",
+        r"\bexamine\b",
+        r"\bremove\b",
+        r"\binsert\b",
+        r"\bshine\b",
+        r"\bpress and hold\b",
+        r"\bforce a restart\b",
+        r"\bcharge\b",
+        r"\bconnect\b",
+        r"\bdisconnect\b",
+        r"\bturn it on\b",
+        r"\btry to turn\b",
+        r"\bcontact\b",
+        r"\brestart\b",
+        r"\bverify\b",
+        r"\bensure\b",
+        r"\bconfirm\b",
+        r"\bopen\b",
+        r"\bclose\b",
+        r"\btap\b",
+        r"\bselect\b",
+        r"\bswitch\b",
+        r"\benable\b",
+        r"\bdisable\b",
     )
 
     steps: list[str] = []
 
-    for sentence in sentences:
-        clean_sentence = sentence.strip(" .")
+    # IMPORTANT:
+    # Iterate over ALL sections.
+    # This supports both:
+    #
+    #   ### Step 1:
+    #   ### Step 2:
+    #
+    # and simple unseen SIIS such as:
+    #
+    #   Check the device and follow the available guidance.
+    for section in sections:
+        section = section.strip()
 
-        if not clean_sentence:
+        if not section:
             continue
 
-        lower = clean_sentence.lower()
-
-        if lower.startswith(action_starters):
-            steps.append(
-                clean_sentence + "."
+        sentences = [
+            sentence.strip(" .")
+            for sentence in re.split(
+                r"(?<=[.!?])\s+",
+                section,
             )
+            if sentence.strip()
+        ]
+
+        selected = None
+
+        for sentence in sentences:
+            clean_sentence = sentence.strip(" .")
+
+            if not clean_sentence:
+                continue
+
+            lower = clean_sentence.lower()
+
+            if not any(
+                re.search(
+                    pattern,
+                    lower,
+                )
+                for pattern in action_patterns
+            ):
+                continue
+
+            # Remove conversational prefixes.
+            clean_sentence = re.sub(
+                r"^(first,\s*)"
+                r"(please\s*)?"
+                r"(carefully\s*)?",
+                "",
+                clean_sentence,
+                flags=re.IGNORECASE,
+            )
+
+            clean_sentence = re.sub(
+                r"^(now,\s*)",
+                "",
+                clean_sentence,
+                flags=re.IGNORECASE,
+            )
+
+            clean_sentence = re.sub(
+                r"^(then,\s*)",
+                "",
+                clean_sentence,
+                flags=re.IGNORECASE,
+            )
+
+            clean_sentence = clean_sentence.strip(" .")
+
+            if len(clean_sentence.split()) >= 3:
+                selected = clean_sentence + "."
+                break
+
+        if selected:
+            steps.append(selected)
 
     if steps:
         return tuple(
@@ -350,12 +423,18 @@ class DeterministicSolutionProvider(SolutionProvider):
         context: str,
     ) -> SolutionDraft:
         if not query.strip():
-            raise ValueError("query must not be blank")
+            raise ValueError(
+                "query must not be blank"
+            )
 
         if not context.strip():
-            raise ValueError("context must not be blank")
+            raise ValueError(
+                "context must not be blank"
+            )
 
-        siis_text, candidates = _extract_sections(context)
+        siis_text, candidates = _extract_sections(
+            context
+        )
 
         if not candidates:
             if siis_text.strip():
@@ -454,8 +533,6 @@ class FallbackSolutionProvider(SolutionProvider):
         # calling Gemini.
         self._gemini_cooldown_until = 0.0
 
-        # Keep the cooldown short so the system can
-        # recover automatically.
         self._cooldown_seconds = 60.0
 
     def solve(
@@ -465,9 +542,6 @@ class FallbackSolutionProvider(SolutionProvider):
     ) -> SolutionDraft:
         now = time.monotonic()
 
-        # Gemini recently failed.
-        # Skip another remote request and immediately
-        # use the deterministic fallback.
         if now < self._gemini_cooldown_until:
             print(
                 "[INFO] Gemini cooldown active; "
@@ -485,7 +559,9 @@ class FallbackSolutionProvider(SolutionProvider):
                 context,
             )
 
-            print("[DEBUG] Stage 2 Gemini result:")
+            print(
+                "[DEBUG] Stage 2 Gemini result:"
+            )
             print(result)
 
             return result
@@ -496,8 +572,6 @@ class FallbackSolutionProvider(SolutionProvider):
                 f"{type(exc).__name__}: {exc}"
             )
 
-            # Start a temporary cooldown after
-            # the Gemini failure.
             self._gemini_cooldown_until = (
                 time.monotonic()
                 + self._cooldown_seconds

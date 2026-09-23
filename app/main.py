@@ -11,6 +11,7 @@ from __future__ import annotations
 import logging
 from contextlib import asynccontextmanager
 from typing import Optional
+import re
 from app.cache import FastPathCache
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse
@@ -25,6 +26,141 @@ from app.llm.solution_factory import build_solution_provider
 from app.troubleshoot_service import TroubleshootService
 log = logging.getLogger("tapfix")
 
+def _retrieve_siis_for_query(query: str, records):
+    """
+    Find a relevant local SIIS article when the caller does not
+    provide a siis_response.
+
+    Retrieval is intentionally conservative: an article must share
+    at least two meaningful query terms and at least one of those
+    terms must appear in the article title or original scenario.
+    """
+    if not query or not records:
+        return None
+
+    aliases = {
+        "display": "screen",
+        "displays": "screen",
+        "dark": "black",
+        "blank": "black",
+        "nothing": "black",
+        "visible": "black",
+        "smartphone": "phone",
+        "smartphones": "phone",
+    }
+
+    stopwords = {
+        "my",
+        "the",
+        "a",
+        "an",
+        "is",
+        "are",
+        "was",
+        "were",
+        "and",
+        "or",
+        "to",
+        "on",
+        "in",
+        "of",
+        "for",
+        "with",
+        "i",
+        "it",
+        "this",
+        "that",
+        "properly",
+        "very",
+        "really",
+        "just",
+        "can",
+        "cannot",
+        "not",
+    }
+
+    def words(text: str) -> set[str]:
+        tokens = re.findall(r"[a-z0-9]+", text.lower())
+
+        result = set()
+
+        for token in tokens:
+            if token in stopwords:
+                continue
+
+            token = aliases.get(token, token)
+
+            if len(token) >= 4:
+                result.add(token)
+
+        return result
+
+    # Handle the common vague complaint:
+    # "I can't see anything on the screen" -> black + screen.
+    normalized_query = re.sub(
+        r"\bcan'?t\s+see\s+anything\b",
+        "black screen",
+        query.lower(),
+    )
+
+    query_words = words(normalized_query)
+
+    if not query_words:
+        return None
+
+    best_record = None
+    best_score = 0.0
+
+    for record in records:
+        record_text = " ".join(
+            [
+                record.original_query,
+                record.title,
+                record.content[:2500],
+            ]
+        )
+
+        record_words = words(record_text)
+
+        overlap = query_words & record_words
+
+        # One shared word is not enough to select an SIIS article.
+        if len(overlap) < 2:
+            continue
+
+        title_words = words(record.title)
+        original_words = words(record.original_query)
+
+        title_overlap = query_words & title_words
+        original_overlap = query_words & original_words
+
+        # Require at least one strong match from the title or
+        # original scenario, not only from arbitrary article content.
+        if not title_overlap and not original_overlap:
+            continue
+
+        score = (
+            len(overlap)
+            + (2.0 * len(title_overlap))
+            + (1.5 * len(original_overlap))
+        )
+
+        if score > best_score:
+            best_score = score
+            best_record = record
+
+    if best_record is None:
+        return None
+
+    print(
+        f"[INFO] Auto SIIS retrieval selected: "
+        f"{best_record.id} - {best_record.title}"
+    )
+
+    return {
+        "title": best_record.title,
+        "content": best_record.content,
+    }
 
 def create_app(settings: Optional[Settings] = None) -> FastAPI:
     settings = settings or Settings.from_env()
@@ -131,10 +267,24 @@ def create_app(settings: Optional[Settings] = None) -> FastAPI:
             )
 
         try:
+            effective_siis_response = body.siis_response
+
+            if (
+                effective_siis_response is None
+                or (
+                    isinstance(effective_siis_response, str)
+                    and not effective_siis_response.strip()
+                )
+            ):
+                effective_siis_response = _retrieve_siis_for_query(
+                    body.query,
+                    request.app.state.siis_records,
+                )
+
             result = service.troubleshoot(
-    query=body.query,
-    siis_response=body.siis_response,
-)
+                query=body.query,
+                siis_response=effective_siis_response,
+            )
         except Exception as exc:
             log.exception("troubleshooting request failed")
             raise HTTPException(
