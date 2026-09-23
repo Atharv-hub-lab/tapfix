@@ -160,6 +160,7 @@ def _select_siis_supported_candidate(
         "details",
     }
 
+    # Words that should not form part of a distinctive topic phrase.
     phrase_stopwords = {
         "with",
         "from",
@@ -183,7 +184,10 @@ def _select_siis_supported_candidate(
     if not title_specific_words:
         return None
 
-    # Build distinctive two-word phrases from the SIIS title.
+    # Build meaningful two-word phrases from the title.
+    # Example:
+    # "Transfer Secure folder with Smart Switch"
+    # -> "smart switch" becomes the distinctive topic.
     title_tokens = [
         word.lower()
         for word in re.findall(r"[A-Za-z0-9]+", title_text)
@@ -231,6 +235,7 @@ def _select_siis_supported_candidate(
             & candidate_specific_words
         )
 
+        # Require at least two meaningful title matches.
         if len(title_overlap) < 2:
             continue
 
@@ -251,6 +256,8 @@ def _select_siis_supported_candidate(
             best_candidate = candidate
 
     return best_candidate
+
+
 def _extract_siis_steps(
     siis_text: str,
 ) -> tuple[str, ...]:
@@ -285,6 +292,11 @@ def _extract_siis_steps(
         "ensure ",
         "confirm ",
         "try ",
+        "place ",
+        "plug ",
+        "swipe ",
+        "enter ",
+        "scan ",
         "restart ",
         "force restart ",
         "charge ",
@@ -298,11 +310,6 @@ def _extract_siis_steps(
         "disable ",
         "remove ",
         "insert ",
-        "place ",
-        "plug ",
-        "swipe ",
-        "enter ",
-        "scan ",
         "press ",
         "tap ",
         "select ",
@@ -506,4 +513,4 @@ class FallbackSolutionProvider(SolutionProvider):
                 fallback_result,
             )
 
-            return fallback_result  
+            return fallback_result
