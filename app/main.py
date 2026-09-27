@@ -31,10 +31,12 @@ def _retrieve_siis_for_query(query: str, records):
     Find a relevant local SIIS article when the caller does not
     provide a siis_response.
 
-    Retrieval is intentionally conservative: an article must share
-    at least two meaningful query terms and at least one of those
-    terms must appear in the article title or original scenario.
+    The retrieval is intentionally symptom-aware:
+    - Strongly vague complaints must not select arbitrary SIIS articles.
+    - Specific symptoms such as black screen, freezing, charging,
+      Wi-Fi, Bluetooth, battery, etc. can trigger SIIS retrieval.
     """
+
     if not query or not records:
         return None
 
@@ -47,6 +49,14 @@ def _retrieve_siis_for_query(query: str, records):
         "visible": "black",
         "smartphone": "phone",
         "smartphones": "phone",
+        "freezes": "frozen",
+        "freezing": "frozen",
+        "hangs": "frozen",
+        "hanging": "frozen",
+        "charging": "charge",
+        "charged": "charge",
+        "wifi": "wifi",
+        "wi-fi": "wifi",
     }
 
     stopwords = {
@@ -70,13 +80,35 @@ def _retrieve_siis_for_query(query: str, records):
         "it",
         "this",
         "that",
-        "properly",
+        "can",
+        "cannot",
+        "cant",
+        "not",
         "very",
         "really",
         "just",
-        "can",
-        "cannot",
-        "not",
+        "properly",
+        "something",
+        "anything",
+        "nothing",
+        "thing",
+        "things",
+        "wrong",
+        "weird",
+        "strange",
+        "some",
+        "somehow",
+        "device",
+        "phone",
+        "mobile",
+        "use",
+        "using",
+        "work",
+        "working",
+        "works",
+        "normally",
+        "normal",
+        "like",
     }
 
     def words(text: str) -> set[str]:
@@ -85,18 +117,16 @@ def _retrieve_siis_for_query(query: str, records):
         result = set()
 
         for token in tokens:
+            token = aliases.get(token, token)
+
             if token in stopwords:
                 continue
-
-            token = aliases.get(token, token)
 
             if len(token) >= 4:
                 result.add(token)
 
         return result
 
-    # Handle the common vague complaint:
-    # "I can't see anything on the screen" -> black + screen.
     normalized_query = re.sub(
         r"\bcan'?t\s+see\s+anything\b",
         "black screen",
@@ -107,6 +137,69 @@ def _retrieve_siis_for_query(query: str, records):
 
     if not query_words:
         return None
+
+    # ---------------------------------------------------------
+    # VAGUE-QUERY GATE
+    # ---------------------------------------------------------
+    #
+    # These are broad complaints where selecting an SIIS article
+    # from weak word overlap would be unsafe.
+    #
+    # We require at least one concrete symptom/domain signal.
+    # ---------------------------------------------------------
+
+    concrete_signals = {
+        "black",
+        "screen",
+        "frozen",
+        "freeze",
+        "charge",
+        "battery",
+        "wifi",
+        "bluetooth",
+        "camera",
+        "speaker",
+        "sound",
+        "audio",
+        "network",
+        "internet",
+        "signal",
+        "keyboard",
+        "touchscreen",
+        "touch",
+        "display",
+        "restart",
+        "crash",
+        "crashing",
+        "stuck",
+        "slow",
+        "overheating",
+        "hot",
+        "notification",
+        "notifications",
+        "app",
+        "apps",
+        "password",
+        "fingerprint",
+        "volume",
+        "microphone",
+        "charging",
+    }
+
+    concrete_overlap = query_words & concrete_signals
+
+
+
+    if not concrete_overlap:
+        print(
+            "[INFO] Vague complaint detected; "
+            "skipping automatic SIIS retrieval."
+        )
+        return None
+
+    # ---------------------------------------------------------
+    # Retrieve only when the query contains concrete evidence.
+    # ---------------------------------------------------------
 
     best_record = None
     best_score = 0.0
@@ -124,8 +217,7 @@ def _retrieve_siis_for_query(query: str, records):
 
         overlap = query_words & record_words
 
-        # One shared word is not enough to select an SIIS article.
-        if len(overlap) < 2:
+        if not overlap:
             continue
 
         title_words = words(record.title)
@@ -134,15 +226,23 @@ def _retrieve_siis_for_query(query: str, records):
         title_overlap = query_words & title_words
         original_overlap = query_words & original_words
 
-        # Require at least one strong match from the title or
-        # original scenario, not only from arbitrary article content.
-        if not title_overlap and not original_overlap:
+        # A concrete symptom must be represented by the article.
+        symptom_overlap = concrete_overlap & record_words
+
+        if not symptom_overlap:
+            continue
+
+        # Stronger evidence from the title/original scenario.
+        strong_overlap = title_overlap | original_overlap
+
+        if not strong_overlap:
             continue
 
         score = (
-            len(overlap)
-            + (2.0 * len(title_overlap))
-            + (1.5 * len(original_overlap))
+            2.0 * len(symptom_overlap)
+            + 2.0 * len(title_overlap)
+            + 1.5 * len(original_overlap)
+            + 0.5 * len(overlap)
         )
 
         if score > best_score:
@@ -150,6 +250,10 @@ def _retrieve_siis_for_query(query: str, records):
             best_record = record
 
     if best_record is None:
+        print(
+            "[INFO] No sufficiently supported SIIS article "
+            "found for query."
+        )
         return None
 
     print(
