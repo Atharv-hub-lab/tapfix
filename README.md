@@ -447,3 +447,10 @@ The tagged commit contains the final verified implementation.
 ## License
 
 This project was developed as a submission for the Samsung PRISM GenAI Hackathon 2026–27.
+
+## Submission Artifacts
+
+- Presentation: [TapFix Samsung PRISM Presentation](./TapFix_Samsung_PRISM_Presentation.pptx)
+- Demo Video: [Watch the TapFix Demo](https://drive.google.com/file/d/1iG9kXEp97Xw6M_UTYncVl4p8t0DOCaCF/view?usp=sharing)
+- GitHub: https://github.com/Atharv-hub-lab/tapfix
+- Required Tag: `PRISM_GENAI_HACKATHON_Y2026`
